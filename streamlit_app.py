@@ -3,476 +3,594 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import math
+import time
 
 # Настройка страницы
 st.set_page_config(
-    page_title="AI Marketing Copilot",
-    page_icon="🎯",
+    page_title="Spy-Tool для Онлайн Школ",
+    page_icon="🕵️",
     layout="wide"
 )
+
+# Инициализация состояния
+if 'search_completed' not in st.session_state:
+    st.session_state.search_completed = False
+if 'analysis_completed' not in st.session_state:
+    st.session_state.analysis_completed = False
+if 'selected_schools' not in st.session_state:
+    st.session_state.selected_schools = []
 
 # Кастомный CSS
 st.markdown("""
 <style>
     .main-header {
-        font-size: 2.5rem;
+        font-size: 3rem;
         font-weight: 700;
         color: #1f2937;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
         text-align: center;
     }
-    .metric-card {
+    .subtitle {
+        font-size: 1.4rem;
+        color: #6b7280;
+        text-align: center;
+        margin-bottom: 3rem;
+    }
+    .search-section {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
+        padding: 2rem;
+        border-radius: 15px;
         color: white;
-        text-align: center;
+        margin: 2rem 0;
     }
-    .insight-box {
-        background: #f8fafc;
-        border-left: 4px solid #10b981;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 0 8px 8px 0;
-    }
-    .competitor-card {
-        border: 1px solid #e5e7eb;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-        background: white;
-    }
-    .price-card {
-        border: 1px solid #d1d5db;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-        background: #f9fafb;
-    }
-    .calculator-result {
-        background: #ecfdf5;
-        border: 2px solid #10b981;
+    .school-card {
+        border: 2px solid #e5e7eb;
         padding: 1.5rem;
         border-radius: 12px;
         margin: 1rem 0;
+        background: #f9fafb;
+        transition: all 0.3s ease;
     }
-    .headline-variant {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
+    .school-card:hover {
+        border-color: #3b82f6;
+        background: #eff6ff;
     }
-    .trend-item {
+    .school-card.selected {
+        border-color: #10b981;
+        background: #ecfdf5;
+    }
+    .insight-box {
         background: #fef3c7;
         border-left: 4px solid #f59e0b;
-        padding: 0.8rem;
-        margin: 0.5rem 0;
-        border-radius: 0 6px 6px 0;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        border-radius: 0 8px 8px 0;
+    }
+    .review-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.8rem 0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .social-post {
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.8rem 0;
+    }
+    .competitor-tab {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-big {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1f2937;
+    }
+    .metric-label {
+        font-size: 0.9rem;
+        color: #6b7280;
+        text-transform: uppercase;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # Заголовок
-st.markdown('<h1 class="main-header">🎯 AI Маркетинг Помощник для Онлайн Школ</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align: center; color: #6b7280; font-size: 1.2rem;">Анализ конкурентов • Генерация креативов • Расчет юнит-экономики</p>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🕵️ Spy-Tool для Онлайн Школ</h1>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Найди конкурентов → Проанализируй их фишки → Создай лучшие креативы</p>', unsafe_allow_html=True)
 
-# Боковая панель
-with st.sidebar:
-    st.header("🔧 Настройки")
+# Если анализ не начат - показываем поиск
+if not st.session_state.search_completed:
     
-    # Конфигурация API
-    with st.expander("🔑 API Ключи"):
-        fb_token = st.text_input("Facebook Access Token", type="password")
-        google_token = st.text_input("Google Ads Token", type="password")
-        vk_token = st.text_input("VK Ads Token", type="password")
-    
-    # Фильтры
-    st.header("📊 Фильтры")
-    niche_filter = st.selectbox(
-        "Ниша",
-        ["Все ниши", "Цифровой маркетинг", "Программирование", "Дизайн", "Бизнес", "Языки"]
-    )
-
-# Основные метрики
-col1, col2, col3, col4 = st.columns(4)
-
-sample_metrics = {
-    "Цена лида": {"value": "1,250₽", "change": -15},
-    "ROAS": {"value": "320%", "change": 8}, 
-    "CTR": {"value": "2.4%", "change": -5},
-    "Конверсия": {"value": "3.2%", "change": 12}
-}
-
-for i, (metric, data) in enumerate(sample_metrics.items()):
-    with [col1, col2, col3, col4][i]:
-        delta_color = "normal" if data["change"] > 0 else "inverse"
-        st.metric(
-            label=metric,
-            value=data["value"],
-            delta=f"{data['change']:+}%",
-            delta_color=delta_color
-        )
-
-st.divider()
-
-# Основные вкладки
-tab1, tab2, tab3 = st.tabs(["🕵️ Анализ конкурентов", "🎨 Генератор креативов", "💰 Калькулятор юнит-экономики"])
-
-with tab1:
-    st.header("🕵️ Анализ конкурентов")
+    st.markdown("""
+    <div class="search-section">
+        <h2 style="color: white; margin-bottom: 1rem;">🔍 Найди конкурентов в своей нише</h2>
+        <p style="color: #e0e7ff;">Выбери нишу и настрой фильтры - мы найдем всех твоих конкурентов и проанализируем их стратегии</p>
+    </div>
+    """, unsafe_allow_html=True)
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🔍 Анализ конкурента")
-        competitor_url = st.text_input(
-            "URL конкурента или страница в соцсетях",
-            placeholder="https://example.com или @конкурент"
+        st.subheader("🎯 Выбери нишу")
+        
+        niche = st.selectbox(
+            "Основная ниша",
+            [
+                "Digital-маркетинг & SMM",
+                "Программирование & IT", 
+                "Дизайн & Графика",
+                "Бизнес & Предпринимательство",
+                "Психология & Личностный рост",
+                "Языки & Лингвистика",
+                "Фитнес & Здоровье",
+                "Финансы & Инвестиции",
+                "Кулинария & Хобби",
+                "Красота & Стиль"
+            ]
         )
         
-        if st.button("🔍 Анализировать", type="primary"):
-            with st.spinner("Анализируем конкурента..."):
+        keywords = st.text_input(
+            "🔑 Дополнительные ключевые слова",
+            placeholder="курс маркетинг, SMM обучение, таргетинг"
+        )
+        
+    with col2:
+        st.subheader("⚙️ Фильтры")
+        
+        price_range = st.slider(
+            "💰 Ценовой диапазон (₽)",
+            5000, 200000, (20000, 80000), 5000
+        )
+        
+        region = st.selectbox(
+            "📍 Регион",
+            ["Россия", "СНГ", "Весь мир"]
+        )
+        
+        school_size = st.selectbox(
+            "📊 Размер школы",
+            ["Любой", "Стартап (до 1000 студентов)", "Средняя (1000-10000)", "Крупная (10000+)"]
+        )
+    
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🔍 Найти конкурентов", type="primary", use_container_width=True):
+            with st.spinner("Ищем онлайн школы в нише..."):
                 progress_bar = st.progress(0)
                 for i in range(100):
+                    time.sleep(0.02)
                     progress_bar.progress(i + 1)
                 
-                st.success("✅ Анализ завершен!")
-                
-                # Основные данные
-                col_info1, col_info2 = st.columns(2)
-                
-                with col_info1:
-                    st.markdown("""
-                    **📊 Реклама и трафик:**
-                    - Рекламный бюджет: ~450,000₽/месяц
-                    - Активных кампаний: 18
-                    - Основная площадка: Facebook (60%)
-                    - Средний CPC: 28₽
-                    """)
-                
-                with col_info2:
-                    st.markdown("""
-                    **🎯 Стратегия:**
-                    - Главное предложение: "За 3 месяца к результату"
-                    - Оценка лендинга: 8.7/10
-                    - Основная аудитория: 25-35 лет
-                    - Динамика: рост активности +40%
-                    """)
-        
-        # Анализ цен конкурентов
-        st.subheader("💰 Анализ цен в нише")
-        
-        if st.button("📊 Проанализировать цены"):
-            with st.spinner("Собираем данные по ценам..."):
-                # Мок-данные по ценам
-                price_data = [
-                    {"name": "Конкурент А", "price": "29,900₽", "type": "Базовый курс", "duration": "2 месяца"},
-                    {"name": "Конкурент Б", "price": "49,900₽", "type": "Премиум", "duration": "4 месяца"},
-                    {"name": "Конкурент В", "price": "19,900₽", "type": "Мини-курс", "duration": "1 месяц"},
-                    {"name": "Конкурент Г", "price": "79,900₽", "type": "VIP", "duration": "6 месяцев"},
-                    {"name": "Ваш курс", "price": "39,900₽", "type": "Стандарт", "duration": "3 месяца"}
-                ]
-                
-                st.success("✅ Данные по ценам собраны!")
-                
-                for competitor in price_data:
-                    color = "#e3f2fd" if competitor["name"] == "Ваш курс" else "#f9fafb"
-                    st.markdown(f"""
-                    <div style="background: {color}; border: 1px solid #d1d5db; padding: 1rem; border-radius: 8px; margin: 0.5rem 0;">
-                        <strong>{competitor['name']}</strong><br>
-                        💰 Цена: {competitor['price']}<br>
-                        📚 Тип: {competitor['type']}<br>
-                        ⏱️ Длительность: {competitor['duration']}
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                # График цен
-                prices_df = pd.DataFrame([
-                    {"Конкурент": "А", "Цена": 29900},
-                    {"Конкурент": "Б", "Цена": 49900}, 
-                    {"Конкурент": "В", "Цена": 19900},
-                    {"Конкурент": "Г", "Цена": 79900},
-                    {"Конкурент": "Ваш", "Цена": 39900}
-                ])
-                
-                fig = px.bar(prices_df, x='Конкурент', y='Цена', 
-                           title="Сравнение цен в нише",
-                           color='Конкурент',
-                           color_discrete_map={'Ваш': '#10b981'})
-                st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("📈 Тренды недели")
-        
-        trends = [
-            "Видео-отзывы студентов показывают +40% к вовлечению",
-            "Слово 'гарантия' в заголовке повышает CTR на 25%",
-            "Креативы с конкретными цифрами работают на 15% лучше",
-            "Формат 'До и После' набирает популярность",
-            "Акцент на быстрые результаты (7-14 дней) увеличивает конверсию"
-        ]
-        
-        for i, trend in enumerate(trends, 1):
-            st.markdown(f"""
-            <div class="trend-item">
-                <strong>#{i}</strong> {trend}
-            </div>
-            """, unsafe_allow_html=True)
+                st.session_state.search_completed = True
+                st.rerun()
 
-with tab2:
-    st.header("🎨 Генератор креативов")
+# Если поиск завершен, но анализ не начат - показываем результаты поиска
+elif st.session_state.search_completed and not st.session_state.analysis_completed:
     
-    col1, col2 = st.columns([3, 2])
+    st.markdown("### 🎉 Найдено онлайн школ в вашей нише: **23**")
     
-    with col1:
-        st.subheader("📝 Информация о продукте")
+    # Мок-данные школ
+    schools_data = [
+        {"name": "Skillbox", "niche": "Дизайн", "price": "49,900₽", "students": "50,000+", "rating": "4.2", "url": "skillbox.ru"},
+        {"name": "GeekBrains", "niche": "Программирование", "price": "89,900₽", "students": "100,000+", "rating": "4.1", "url": "geekbrains.ru"},
+        {"name": "Нетология", "niche": "Маркетинг", "price": "39,900₽", "students": "200,000+", "rating": "4.4", "url": "netology.ru"},
+        {"name": "TexTerra", "niche": "Контент-маркетинг", "price": "29,900₽", "students": "5,000+", "rating": "4.7", "url": "texterra.ru"},
+        {"name": "Convertmonster", "niche": "Таргетинг", "price": "59,900₽", "students": "15,000+", "rating": "4.5", "url": "convertmonster.ru"},
+        {"name": "WebCanape", "niche": "SMM", "price": "24,900₽", "students": "8,000+", "rating": "4.3", "url": "webcanape.ru"},
+        {"name": "ProductStar", "niche": "Продуктовый менеджмент", "price": "79,900₽", "students": "25,000+", "rating": "4.6", "url": "productstar.ru"},
+        {"name": "Eduson Academy", "niche": "Бизнес", "price": "45,900₽", "students": "12,000+", "rating": "4.0", "url": "eduson.tv"}
+    ]
+    
+    st.markdown("**📋 Выберите школы для анализа** (выберите 3-5 школ для получения максимальных инсайтов):")
+    
+    # Создаем чекбоксы для выбора школ
+    for i, school in enumerate(schools_data):
+        checkbox_key = f"school_{i}"
         
-        product_name = st.text_input("Название курса", placeholder="Курс по Instagram-маркетингу")
-        target_audience = st.text_input("Целевая аудитория", placeholder="Предприниматели 25-40 лет")
-        price = st.text_input("Цена курса", placeholder="39,900₽")
-        unique_value = st.text_area("Главная выгода", placeholder="Что получит студент?")
-        
-        # Генератор заголовков
-        st.subheader("✨ Генератор заголовков")
-        
-        headline_style = st.selectbox(
-            "Стиль заголовка",
-            ["Эмоциональный", "Рациональный", "Провокационный", "С цифрами", "Срочность"]
+        selected = st.checkbox(
+            f"**{school['name']}** • {school['niche']} • {school['price']} • {school['students']} студентов • ⭐ {school['rating']}",
+            key=checkbox_key
         )
         
-        if st.button("🚀 Сгенерировать заголовки", type="primary"):
-            with st.spinner("Генерируем заголовки..."):
-                headlines = {
-                    "Эмоциональный": [
-                        f"Устали работать на других? Освойте {product_name}!",
-                        f"Мечтаете о свободе? {product_name} - ваш путь к успеху",
-                        f"Хватит откладывать! Начните зарабатывать с {product_name}"
-                    ],
-                    "Рациональный": [
-                        f"{product_name}: пошаговая система заработка",
-                        f"Изучите {product_name} за 3 месяца. Результат гарантирован",
-                        f"Практический {product_name} с реальными кейсами"
-                    ],
-                    "Провокационный": [
-                        f"Почему 90% не зарабатывают в интернете? {product_name} даст ответ",
-                        f"Секрет, который скрывают гуру {product_name}",
-                        f"Что если я скажу, что {product_name} изменит вашу жизнь?"
-                    ],
-                    "С цифрами": [
-                        f"От 0 до 100,000₽ в месяц с {product_name}",
-                        f"7 дней до первого результата в {product_name}",
-                        f"2,847 студентов уже освоили {product_name}"
-                    ],
-                    "Срочность": [
-                        f"Последние 3 дня! {product_name} со скидкой 50%",
-                        f"Только до конца месяца: {product_name} за {price}",
-                        f"Осталось 5 мест на {product_name}. Успейте!"
-                    ]
-                }
-                
-                st.success("✅ Заголовки готовы!")
-                
-                selected_headlines = headlines.get(headline_style, headlines["Эмоциональный"])
-                
-                for i, headline in enumerate(selected_headlines, 1):
-                    st.markdown(f"""
-                    <div class="headline-variant">
-                        <strong>Вариант {i}:</strong><br>
-                        "{headline}"
-                        <br><br>
-                        <small>💯 AI Оценка: {8.5 + i*0.2:.1f}/10</small>
-                    </div>
-                    """, unsafe_allow_html=True)
-        
-        # Генератор полного креатива
-        st.subheader("📄 Полный креатив")
-        
-        if st.button("🎨 Создать креатив"):
-            with st.spinner("Создаем креатив..."):
-                st.success("✅ Креатив готов!")
-                
-                generated_creative = f"""
-                **Заголовок:** Устали работать на других? Освойте {product_name}!
-                
-                **Основной текст:**
-                Представьте: через 3 месяца вы работаете на себя и зарабатываете от 100,000₽ в месяц.
-                
-                Наш {product_name} - это пошаговая система, которая уже помогла 2,000+ студентам изменить свою жизнь.
-                
-                ✅ Практические задания каждый день
-                ✅ Поддержка кураторов 24/7  
-                ✅ Гарантия результата или возврат денег
-                ✅ Доступ к закрытому сообществу
-                
-                **Призыв к действию:** Начать обучение сейчас
-                
-                **Цена:** {price} (вместо 59,900₽)
-                """
-                
-                st.markdown(generated_creative)
+        if selected and school not in st.session_state.selected_schools:
+            st.session_state.selected_schools.append(school)
+        elif not selected and school in st.session_state.selected_schools:
+            st.session_state.selected_schools.remove(school)
     
+    st.markdown("---")
+    
+    selected_count = len(st.session_state.selected_schools)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.subheader("💡 Рекомендации к креативу")
-        
-        recommendations = [
-            "📹 **Формат:** Используйте видео-отзыв студента - конверсия выше на 40%",
-            "🎯 **Аудитория:** Добавьте интересы 'онлайн заработок' + 'саморазвитие'",
-            "⏰ **Время:** Лучшие показы: вторник-четверг 14:00-18:00",
-            "💰 **Бюджет:** Рекомендуемый дневной бюджет: 3,000-5,000₽",
-            "🔄 **A/B тест:** Протестируйте 2-3 варианта заголовка",
-            "📱 **Платформы:** Facebook (60%) + Instagram (40%) для максимального охвата"
-        ]
-        
-        for rec in recommendations:
-            st.markdown(f"• {rec}")
-        
-        st.divider()
-        
-        st.subheader("📊 Быстрая оценка")
-        st.markdown("""
-        **Ваш креатив:**
-        - 🎯 Релевантность: 8.5/10
-        - 💫 Эмоциональность: 9.2/10  
-        - 🔥 Призыв к действию: 8.8/10
-        - 📈 Прогноз CTR: 2.8-3.5%
-        """)
+        if selected_count > 0:
+            if st.button(f"🚀 Анализировать выбранные школы ({selected_count})", type="primary", use_container_width=True):
+                with st.spinner(f"Анализируем {selected_count} школ... Это займет 2-3 минуты"):
+                    progress_bar = st.progress(0)
+                    for i in range(100):
+                        time.sleep(0.03)
+                        progress_bar.progress(i + 1)
+                    
+                    st.session_state.analysis_completed = True
+                    st.rerun()
+        else:
+            st.warning("⚠️ Выберите хотя бы одну школу для анализа")
 
-with tab3:
-    st.header("💰 Калькулятор юнит-экономики")
+# Если анализ завершен - показываем результаты
+else:
     
-    col1, col2 = st.columns([2, 1])
+    st.markdown("## 🎯 Анализ конкурентов завершен!")
+    st.markdown(f"**Проанализировано школ:** {len(st.session_state.selected_schools)}")
+    
+    # Общая статистика
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.subheader("📊 Параметры вашего курса")
-        
-        # Основные параметры
-        course_price = st.number_input("Цена курса (₽)", value=39900, step=1000)
-        conversion_rate = st.slider("Конверсия сайта (%)", 1.0, 10.0, 3.2, 0.1)
-        target_cpc = st.number_input("Планируемый CPC (₽)", value=28, step=1)
-        
-        # Дополнительные параметры
-        with st.expander("🔧 Дополнительные параметры"):
-            refund_rate = st.slider("Процент возвратов (%)", 0.0, 20.0, 5.0, 0.5)
-            additional_sales = st.slider("Допродажи (% от основной цены)", 0, 100, 20, 5)
-            cost_per_student = st.number_input("Затраты на студента (₽)", value=2000, step=100)
-        
-        if st.button("🧮 Рассчитать экономику", type="primary"):
-            # Расчеты
-            effective_price = course_price * (1 - refund_rate/100) * (1 + additional_sales/100)
-            net_revenue = effective_price - cost_per_student
-            cpl = target_cpc / (conversion_rate/100)  # Cost Per Lead
-            roi = (net_revenue / cpl) * 100
-            breakeven_students = 1
-            target_students = 100
-            required_budget = target_students * cpl
-            profit = target_students * (net_revenue - cpl)
-            
-            st.markdown(f"""
-            <div class="calculator-result">
-                <h3>📈 Результаты расчета</h3>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div>
-                        <strong>💰 Финансы:</strong><br>
-                        • Эффективная цена: {effective_price:,.0f}₽<br>
-                        • Чистая прибыль с студента: {net_revenue:,.0f}₽<br>
-                        • Цена лида: {cpl:,.0f}₽<br>
-                        • ROI: {roi:.0f}%
-                    </div>
-                    <div>
-                        <strong>📊 Планирование:</strong><br>
-                        • Бюджет на 100 студентов: {required_budget:,.0f}₽<br>
-                        • Прибыль с 100 студентов: {profit:,.0f}₽<br>
-                        • Окупаемость: {'Мгновенная' if roi > 100 else f'{100/roi*100:.0f}%'}
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Графики
-            st.subheader("📈 Визуализация воронки")
-            
-            # Воронка продаж
-            funnel_data = pd.DataFrame({
-                'Этап': ['Клики', 'Лиды', 'Продажи', 'Активные студенты'],
-                'Количество': [
-                    int(target_students / (conversion_rate/100)),
-                    target_students,
-                    int(target_students * (1 - refund_rate/100)),
-                    int(target_students * (1 - refund_rate/100) * 0.9)
-                ],
-                'Стоимость': [required_budget, required_budget, 0, 0]
-            })
-            
-            fig = px.funnel(funnel_data, x='Количество', y='Этап', 
-                           title="Воронка продаж (для 100 студентов)")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # График окупаемости
-            students_range = list(range(1, 101))
-            revenue_data = [s * net_revenue for s in students_range]
-            cost_data = [s * cpl for s in students_range]
-            profit_data = [r - c for r, c in zip(revenue_data, cost_data)]
-            
-            fig_roi = go.Figure()
-            fig_roi.add_trace(go.Scatter(x=students_range, y=revenue_data, name='Выручка', line=dict(color='green')))
-            fig_roi.add_trace(go.Scatter(x=students_range, y=cost_data, name='Затраты на рекламу', line=dict(color='red')))
-            fig_roi.add_trace(go.Scatter(x=students_range, y=profit_data, name='Прибыль', line=dict(color='blue')))
-            fig_roi.update_layout(title="Динамика прибыли от количества студентов", 
-                                xaxis_title="Количество студентов", yaxis_title="Сумма (₽)")
-            st.plotly_chart(fig_roi, use_container_width=True)
+        st.markdown('<p class="metric-label">Средняя цена</p>', unsafe_allow_html=True)
+        st.markdown('<p class="metric-big">52,400₽</p>', unsafe_allow_html=True)
     
     with col2:
-        st.subheader("🎯 Бенчмарки рынка")
+        st.markdown('<p class="metric-label">Диапазон цен</p>', unsafe_allow_html=True)
+        st.markdown('<p class="metric-big">24,900₽ - 89,900₽</p>', unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown('<p class="metric-label">Средний рейтинг</p>', unsafe_allow_html=True)
+        st.markdown('<p class="metric-big">⭐ 4.3</p>', unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown('<p class="metric-label">Общий охват</p>', unsafe_allow_html=True)
+        st.markdown('<p class="metric-big">450,000+ студентов</p>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Выбираем конкурента для детального анализа
+    st.subheader("🔍 Детальный анализ конкурента")
+    
+    selected_competitor = st.selectbox(
+        "Выберите школу для детального анализа:",
+        [school['name'] for school in st.session_state.selected_schools]
+    )
+    
+    # Поиск выбранной школы
+    competitor_data = next((school for school in st.session_state.selected_schools if school['name'] == selected_competitor), None)
+    
+    if competitor_data:
         
-        st.markdown("""
-        **💡 Средние показатели в нише:**
+        # Вкладки анализа
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Общая информация", "⭐ Отзывы и репутация", "📱 Соцсети", "🎨 Генератор креативов"])
         
-        **Конверсии:**
-        - Лендинг: 2-5%
-        - Вебинар: 8-15%
-        - Личные продажи: 20-40%
+        with tab1:
+            st.markdown(f"### 📊 Анализ школы: **{competitor_data['name']}**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f"""
+                **🏢 Основная информация:**
+                - Сайт: {competitor_data['url']}
+                - Ниша: {competitor_data['niche']}
+                - Цена курсов: {competitor_data['price']}
+                - Количество студентов: {competitor_data['students']}
+                - Рейтинг: ⭐ {competitor_data['rating']}/5
+                
+                **📈 Анализ трафика:**
+                - Посещений в месяц: ~250,000
+                - Источники трафика: Поиск (45%), Реклама (35%), Прямые (20%)
+                - Ключевые слова: курсы {competitor_data['niche'].lower()}, обучение онлайн
+                """)
+            
+            with col2:
+                st.markdown(f"""
+                **🎯 Маркетинговая стратегия:**
+                - Основной канал: Facebook + Instagram
+                - Рекламный бюджет: ~500,000₽/месяц
+                - Главный оффер: "Освой профессию за 4 месяца"
+                - USP: Гарантия трудоустройства
+                
+                **💰 Ценообразование:**
+                - Базовый тариф: {competitor_data['price']}
+                - Рассрочка: 12 месяцев
+                - Скидки: до 50% на Black Friday
+                - Средний чек: 65,000₽
+                """)
+            
+            # График активности
+            st.subheader("📈 Активность конкурента")
+            
+            dates = pd.date_range(start=datetime.now()-timedelta(days=30), end=datetime.now(), freq='D')
+            activity_data = pd.DataFrame({
+                'Дата': dates,
+                'Рекламная активность': [20 + i*0.5 + (i%7)*3 for i in range(len(dates))],
+                'Новые посты': [(i%5)+1 for i in range(len(dates))]
+            })
+            
+            fig = px.line(activity_data, x='Дата', y=['Рекламная активность', 'Новые посты'], 
+                         title=f"Активность {competitor_data['name']} за последний месяц")
+            st.plotly_chart(fig, use_container_width=True)
         
-        **Цены за клик:**
-        - Facebook: 20-50₽
-        - Google: 30-80₽
-        - VK: 15-35₽
+        with tab2:
+            st.markdown(f"### ⭐ Отзывы и репутация: **{competitor_data['name']}**")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.subheader("📊 Анализ отзывов")
+                
+                # Источники отзывов
+                review_sources = pd.DataFrame({
+                    'Источник': ['Otzovik', 'VK группа', 'Яндекс.Карты', 'Google', 'IRecommend'],
+                    'Количество отзывов': [45, 128, 67, 89, 23],
+                    'Средний рейтинг': [4.2, 4.4, 4.1, 4.3, 4.0]
+                })
+                
+                fig = px.bar(review_sources, x='Источник', y='Количество отзывов', 
+                           color='Средний рейтинг', 
+                           title="Отзывы по источникам")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.subheader("💬 Примеры отзывов")
+                
+                reviews = [
+                    {
+                        "author": "Анна К.", 
+                        "rating": "⭐⭐⭐⭐⭐",
+                        "text": "Отличный курс! За 3 месяца освоила таргетинг с нуля. Преподаватели объясняют понятно, много практики.",
+                        "source": "Otzovik",
+                        "sentiment": "positive"
+                    },
+                    {
+                        "author": "Дмитрий М.", 
+                        "rating": "⭐⭐⭐",
+                        "text": "Курс неплохой, но дороговато. Можно было бы больше актуальных кейсов добавить.",
+                        "source": "VK",
+                        "sentiment": "neutral"
+                    },
+                    {
+                        "author": "Елена С.", 
+                        "rating": "⭐⭐",
+                        "text": "Разочарована. Обещали помочь с трудоустройством, но поддержки почти нет.",
+                        "source": "Google",
+                        "sentiment": "negative"
+                    }
+                ]
+                
+                for review in reviews:
+                    sentiment_color = {"positive": "#dcfce7", "neutral": "#fef3c7", "negative": "#fecaca"}
+                    color = sentiment_color.get(review["sentiment"], "#f9fafb")
+                    
+                    st.markdown(f"""
+                    <div style="background: {color}; border: 1px solid #e5e7eb; padding: 1rem; border-radius: 8px; margin: 0.8rem 0;">
+                        <strong>{review['author']}</strong> • {review['rating']} • {review['source']}<br>
+                        "{review['text']}"
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with col2:
+                st.subheader("🔍 Инсайты из отзывов")
+                
+                st.markdown("""
+                **😊 ТОП ПОХВАЛ:**
+                • Качественная подача материала (67%)
+                • Много практических заданий (54%) 
+                • Отзывчивые кураторы (48%)
+                • Актуальная информация (41%)
+                
+                **😞 ТОП ЖАЛОБ:**
+                • Высокая цена (34%)
+                • Слабая поддержка трудоустройства (28%)
+                • Мало обратной связи (22%)
+                • Устаревшие кейсы (18%)
+                
+                **💡 ВОЗМОЖНОСТИ ДЛЯ ВАС:**
+                ✅ Сделать цену на 20% ниже
+                ✅ Акцент на помощь с трудоустройством
+                ✅ Персональная обратная связь
+                ✅ Свежие кейсы 2024 года
+                """)
+                
+                st.markdown("---")
+                
+                st.subheader("📈 Sentiment анализ")
+                
+                sentiment_data = pd.DataFrame({
+                    'Тип': ['Позитивные', 'Нейтральные', 'Негативные'],
+                    'Процент': [65, 25, 10]
+                })
+                
+                fig_pie = px.pie(sentiment_data, values='Процент', names='Тип',
+                               color_discrete_map={'Позитивные': '#10b981', 'Нейтральные': '#f59e0b', 'Негативные': '#ef4444'})
+                st.plotly_chart(fig_pie, use_container_width=True)
         
-        **Возвраты:**
-        - Стандарт: 5-10%
-        - Премиум: 3-7%
-        - Бюджетные: 10-20%
-        """)
+        with tab3:
+            st.markdown(f"### 📱 Соцсети: **{competitor_data['name']}**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("👥 VK группа")
+                st.markdown("""
+                **📊 Статистика:**
+                - Подписчики: 45,600
+                - Охват постов: 3,000-8,000
+                - Частота: 3-4 поста в день
+                - Лучшее время: 10:00, 14:00, 18:00
+                """)
+                
+                st.subheader("🔥 Популярные посты")
+                
+                vk_posts = [
+                    {"content": "Кейс студента: увеличил продажи на 300% за месяц", "likes": 450, "comments": 67},
+                    {"content": "Бесплатный вебинар: 5 ошибок в таргетинге", "likes": 320, "comments": 89}, 
+                    {"content": "Скидка 40% только до конца недели!", "likes": 280, "comments": 34}
+                ]
+                
+                for post in vk_posts:
+                    st.markdown(f"""
+                    <div class="social-post">
+                        <strong>VK:</strong> "{post['content']}"<br>
+                        <small>❤️ {post['likes']} • 💬 {post['comments']}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            with col2:
+                st.subheader("📸 Instagram")
+                st.markdown("""
+                **📊 Статистика:**
+                - Подписчики: 28,900
+                - Охват Stories: 5,000-12,000
+                - Частота: 1-2 поста + Stories ежедневно
+                - ER: 4.2% (хороший показатель)
+                """)
+                
+                st.subheader("📈 Популярный контент")
+                
+                instagram_posts = [
+                    {"content": "До/После: портфолио студента-дизайнера", "likes": 890, "type": "Карусель"},
+                    {"content": "Stories: быстрые советы по SMM", "views": 6500, "type": "Stories"},
+                    {"content": "Reels: день из жизни SMM-щика", "likes": 1200, "type": "Video"}
+                ]
+                
+                for post in instagram_posts:
+                    metric = f"👁️ {post['views']}" if 'views' in post else f"❤️ {post['likes']}"
+                    st.markdown(f"""
+                    <div class="social-post">
+                        <strong>IG:</strong> "{post['content']}"<br>
+                        <small>{post['type']} • {metric}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            st.subheader("💡 Инсайты для вашей стратегии")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("""
+                **🎯 Что копировать:**
+                • Кейсы студентов - самый популярный контент
+                • Бесплатные вебинары для привлечения
+                • Stories с быстрыми советами
+                • Формат "до/после" работает отлично
+                """)
+            
+            with col2:
+                st.markdown("""
+                **⏰ Оптимальное время постов:**
+                • VK: 10:00, 14:00, 18:00
+                • Instagram: 12:00, 19:00, 21:00
+                • Stories: 9:00-10:00, 17:00-19:00
+                • Reels: 18:00-21:00
+                """)
         
-        st.subheader("🚀 Рекомендации")
-        
-        if 'roi' in locals():
-            if roi > 200:
-                st.success("🔥 Отличная экономика! Можно масштабировать")
-            elif roi > 150:
-                st.info("✅ Хорошие показатели, есть место для роста")
-            elif roi > 100:
-                st.warning("⚠️ Минимальная прибыльность, нужна оптимизация")
-            else:
-                st.error("❌ Убыточная модель, требуется пересмотр")
-        
-        st.markdown("""
-        **💰 Как улучшить экономику:**
-        - Повысить конверсию лендинга
-        - Снизить CPC через лучший креатив
-        - Добавить допродажи
-        - Уменьшить процент возвратов
-        """)
+        with tab4:
+            st.markdown("### 🎨 Генератор креативов")
+            st.markdown("*На основе анализа конкурентов создаем ваши уникальные креативы*")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.subheader("📝 Параметры вашего курса")
+                
+                your_course = st.text_input("Название вашего курса", placeholder="Курс по Instagram-маркетингу PRO")
+                your_price = st.text_input("Ваша цена", placeholder="34,900₽")
+                your_usp = st.text_area("Ваше уникальное предложение", 
+                                      placeholder="Что будет отличать вас от конкурентов?")
+                
+                creative_type = st.selectbox(
+                    "Тип креатива",
+                    ["Пост для VK", "Instagram пост", "Stories", "Рекламное объявление", "Email письмо"]
+                )
+                
+                if st.button("✨ Создать креативы", type="primary"):
+                    with st.spinner("Анализируем конкурентов и создаем ваши креативы..."):
+                        time.sleep(2)
+                        
+                        st.success("🎉 Креативы готовы!")
+                        
+                        # Генерируем креативы на основе анализа конкурентов
+                        generated_creatives = [
+                            {
+                                "title": "🔥 Креатив #1: Бьем конкурентов по цене",
+                                "headline": f"{your_course} - результат как у {competitor_data['name']}, но на 30% дешевле!",
+                                "description": f"Пока {competitor_data['name']} берет {competitor_data['price']}, ты получаешь тот же результат за {your_price}. Почему переплачивать?",
+                                "insight": f"💡 Основано на жалобах клиентов {competitor_data['name']} на высокую цену"
+                            },
+                            {
+                                "title": "⭐ Креатив #2: Решаем их слабое место",  
+                                "headline": f"Гарантируем трудоустройство или возвращаем 100% денег",
+                                "description": f"В отличие от других школ, мы не бросаем студентов после курса. Персональная помощь с поиском работы в течение 6 месяцев.",
+                                "insight": f"💡 Основано на жалобах клиентов {competitor_data['name']} на слабую поддержку трудоустройства"
+                            },
+                            {
+                                "title": "🎯 Креатив #3: Копируем их сильные стороны",
+                                "headline": f"Кейс студента: +300% к продажам за месяц (как у {competitor_data['name']})",
+                                "description": f"Тот же результат, что показывают в {competitor_data['name']}, но с персональным ментором и современными кейсами 2024 года.",
+                                "insight": "💡 Основано на самом популярном формате контента конкурентов"
+                            }
+                        ]
+                        
+                        for creative in generated_creatives:
+                            st.markdown(f"""
+                            <div style="background: #f0f9ff; border: 2px solid #0ea5e9; padding: 1.5rem; border-radius: 12px; margin: 1rem 0;">
+                                <h4>{creative['title']}</h4>
+                                <p><strong>Заголовок:</strong> {creative['headline']}</p>
+                                <p><strong>Описание:</strong> {creative['description']}</p>
+                                <p><em>{creative['insight']}</em></p>
+                            </div>
+                            """, unsafe_allow_html=True)
+            
+            with col2:
+                st.subheader("🧠 AI рекомендации")
+                
+                st.markdown(f"""
+                **На основе анализа {competitor_data['name']}:**
+                
+                **✅ Используйте в креативах:**
+                • Кейсы с конкретными цифрами
+                • Формат "до/после"  
+                • Акцент на гарантии результата
+                • Сравнение с конкурентами
+                
+                **🎯 Оптимальная стратегия:**
+                • Цена на 20-30% ниже {competitor_data['name']}
+                • Акцент на персональную поддержку
+                • Современные кейсы 2024 года
+                • Гарантия трудоустройства
+                
+                **📱 Площадки для запуска:**
+                • VK: кейсы студентов
+                • Instagram: до/после результаты
+                • Facebook: длинные посты с историями
+                """)
+    
+    # Кнопка для нового поиска
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.button("🔄 Найти новых конкурентов", use_container_width=True):
+            # Сбрасываем состояние
+            st.session_state.search_completed = False
+            st.session_state.analysis_completed = False
+            st.session_state.selected_schools = []
+            st.rerun()
 
 # Футер
-st.divider()
+st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown("🤖 **AI Marketing Co-Pilot v2.0**")
+    st.markdown("🕵️ **Spy-Tool v3.0** - Анализ конкурентов + Генерация креативов")
 with col2:
     st.markdown(f"🕒 **Обновлено:** {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 with col3:
-    st.markdown("📧 **Поддержка:** support@ai-marketing.ru")
+    st.markdown("📧 **Поддержка:** support@spy-tool.ru")
